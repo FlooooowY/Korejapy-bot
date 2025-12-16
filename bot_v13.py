@@ -5,7 +5,7 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryH
 from dotenv import load_dotenv
 import time
 
-from models import UserModel, PaymentModel, BroadcastModel
+from models_sync import UserModel, PaymentModel, BroadcastModel
 from qr_generator import generate_qr_code, parse_qr_code
 
 # Загрузка переменных окружения
@@ -27,32 +27,22 @@ POINTS_PER_RUBLE = 0.1
 
 # Вспомогательные функции
 def is_admin(user_id: int) -> bool:
-    """Проверка админа (синхронно для v13)"""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    user = loop.run_until_complete(UserModel.get_user(user_id))
+    """Проверка админа"""
+    user = UserModel.get_user(user_id)
     return user and (user.role in ['admin', 'creator'] or user_id in ADMIN_IDS)
 
 def is_seller(user_id: int) -> bool:
     """Проверка продавца"""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    user = loop.run_until_complete(UserModel.get_user(user_id))
+    user = UserModel.get_user(user_id)
     return user and (user.role in ['seller', 'admin', 'creator'] or user_id in ADMIN_IDS)
 
 # Обработчики команд
 def start(update: Update, context: CallbackContext):
     """Обработчик /start"""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
     user = update.effective_user
     
     # Создаем пользователя
-    db_user = loop.run_until_complete(UserModel.get_or_create_user(
+    db_user = UserModel.get_or_create_user(
         telegram_id=user.id,
         username=user.username,
         first_name=user.first_name,
@@ -72,7 +62,7 @@ def start(update: Update, context: CallbackContext):
     # Проверка ролей
     if user.username and user.username.lower() in [u.lower() for u in ADMIN_USERNAMES]:
         if db_user.role not in ['admin', 'creator']:
-            loop.run_until_complete(UserModel.update_role(user.id, 'admin'))
+            UserModel.update_role(user.id, 'admin')
             welcome_text = (
                 "👑 Добро пожаловать, Администратор!\n\n"
                 f"Здравствуйте, @{user.username}!\n"
@@ -83,7 +73,7 @@ def start(update: Update, context: CallbackContext):
             welcome_text = f"👑 С возвращением, @{user.username}!\nИспользуйте /menu"
     elif user.username and user.username.lower() in [u.lower() for u in SELLER_USERNAMES]:
         if db_user.role not in ['seller', 'admin', 'creator']:
-            loop.run_until_complete(UserModel.update_role(user.id, 'seller'))
+            UserModel.update_role(user.id, 'seller')
             welcome_text = (
                 "🛍️ Добро пожаловать, Продавец!\n\n"
                 f"Здравствуйте, @{user.username}!\n"
@@ -103,12 +93,8 @@ def start(update: Update, context: CallbackContext):
 
 def menu(update: Update, context: CallbackContext):
     """Главное меню"""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
     user_id = update.effective_user.id
-    user = loop.run_until_complete(UserModel.get_user(user_id))
+    user = UserModel.get_user(user_id)
     
     if not user:
         update.message.reply_text("Сначала используйте /start")
@@ -130,12 +116,8 @@ def menu(update: Update, context: CallbackContext):
 
 def balance(update: Update, context: CallbackContext):
     """Показать баланс"""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
     user_id = update.effective_user.id
-    user = loop.run_until_complete(UserModel.get_user(user_id))
+    user = UserModel.get_user(user_id)
     
     if user:
         update.message.reply_text(
@@ -146,18 +128,17 @@ def balance(update: Update, context: CallbackContext):
 
 def my_qr(update: Update, context: CallbackContext):
     """Генерация QR кода"""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
     user_id = update.effective_user.id
-    user = loop.run_until_complete(UserModel.get_user(user_id))
+    user = UserModel.get_user(user_id)
     
     if not user:
         update.message.reply_text("Пользователь не найден")
         return
     
     try:
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         qr_image = loop.run_until_complete(generate_qr_code(user_id, user.username))
         update.message.reply_photo(
             photo=qr_image,
@@ -169,10 +150,6 @@ def my_qr(update: Update, context: CallbackContext):
 
 def button_callback(update: Update, context: CallbackContext):
     """Обработчик кнопок"""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
     query = update.callback_query
     query.answer()
     
@@ -180,14 +157,17 @@ def button_callback(update: Update, context: CallbackContext):
     data = query.data
     
     if data == "balance":
-        user = loop.run_until_complete(UserModel.get_user(user_id))
+        user = UserModel.get_user(user_id)
         if user:
             query.edit_message_text(f"💰 Ваш баланс: {user.loyalty_points:.2f} баллов")
     
     elif data == "my_qr":
-        user = loop.run_until_complete(UserModel.get_user(user_id))
+        user = UserModel.get_user(user_id)
         if user:
             try:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 qr_image = loop.run_until_complete(generate_qr_code(user_id, user.username))
                 query.message.reply_photo(photo=qr_image, caption=f"📱 Ваш QR код\nID: {user_id}")
             except:
@@ -207,10 +187,6 @@ def button_callback(update: Update, context: CallbackContext):
 
 def handle_text(update: Update, context: CallbackContext):
     """Обработчик текста"""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
     text = update.message.text
     user_id = update.effective_user.id
     
@@ -221,14 +197,14 @@ def handle_text(update: Update, context: CallbackContext):
             client_id = int(parts[0])
             amount = float(parts[1])
             
-            client = loop.run_until_complete(UserModel.get_user(client_id))
+            client = UserModel.get_user(client_id)
             if not client:
                 update.message.reply_text("Клиент не найден")
                 return
             
             points = amount * POINTS_PER_RUBLE
-            loop.run_until_complete(UserModel.add_points(client_id, points))
-            loop.run_until_complete(PaymentModel.create_payment(
+            UserModel.add_points(client_id, points)
+            PaymentModel.create_payment(
                 client_id=client.id,
                 seller_id=user_id,
                 amount=amount,
@@ -258,7 +234,7 @@ def handle_text(update: Update, context: CallbackContext):
     # Рассылка
     elif context.user_data.get('waiting_for_broadcast'):
         if is_admin(user_id):
-            users = loop.run_until_complete(UserModel.get_all_users())
+            users = UserModel.get_all_users()
             sent = 0
             for user in users:
                 try:
@@ -273,12 +249,8 @@ def handle_text(update: Update, context: CallbackContext):
 def main():
     """Запуск бота"""
     # Инициализация БД
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    from database import init_db
-    loop.run_until_complete(init_db())
+    from database_sync import init_db
+    init_db()
     logger.info("База данных инициализирована")
     
     # Создание updater

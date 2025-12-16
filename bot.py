@@ -1,15 +1,14 @@
 import os
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
 from telegram.ext import (
-    Application,
+    Updater,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
-    ContextTypes,
-    filters
+    Filters,
+    CallbackContext
 )
-from telegram.constants import ParseMode
 from dotenv import load_dotenv
 import asyncio
 
@@ -61,7 +60,7 @@ async def is_creator(user_id: int) -> bool:
 
 
 # Обработчики команд
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context: CallbackContext):
     """Обработчик команды /start"""
     user = update.effective_user
     
