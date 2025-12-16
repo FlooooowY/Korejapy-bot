@@ -49,17 +49,56 @@ async def generate_qr_code(user_id: int, username: str = None) -> BytesIO:
     return img_io
 
 
+async def generate_spend_qr_code(user_id: int, points: float, qr_data: str) -> BytesIO:
+    """
+    Генерирует QR код для обмена баллов
+    """
+    # Создаем директорию для QR кодов если её нет
+    os.makedirs('qr_codes', exist_ok=True)
+    
+    # Создаем QR код
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    
+    # Создаем изображение
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    # Сохраняем в память
+    img_io = BytesIO()
+    img.save(img_io, format='PNG')
+    img_io.seek(0)
+    
+    # Сохраняем также в файл для истории
+    file_path = f'qr_codes/spend_{user_id}_{points}.png'
+    img.save(file_path)
+    
+    return img_io
+
+
 def parse_qr_code(qr_data: str) -> dict:
     """
     Парсит данные из QR кода
-    Возвращает user_id если QR код валидный
+    Возвращает user_id и points если QR код валидный
     """
     try:
         if qr_data.startswith("KOREJAPY_USER_"):
             user_id = int(qr_data.replace("KOREJAPY_USER_", ""))
-            return {"valid": True, "user_id": user_id}
+            return {"valid": True, "user_id": user_id, "type": "user"}
+        elif qr_data.startswith("KOREJAPY_SPEND_"):
+            # Формат: KOREJAPY_SPEND_user_id_points
+            parts = qr_data.replace("KOREJAPY_SPEND_", "").split("_")
+            if len(parts) == 2:
+                user_id = int(parts[0])
+                points = float(parts[1])
+                return {"valid": True, "user_id": user_id, "points": points, "type": "spend"}
         return {"valid": False, "error": "Неверный формат QR кода"}
-    except ValueError:
+    except (ValueError, IndexError):
         return {"valid": False, "error": "Неверный формат данных"}
 
 

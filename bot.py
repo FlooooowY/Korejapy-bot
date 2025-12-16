@@ -31,7 +31,7 @@ BOT_TOKEN = os.getenv('BOT_TOKEN', '8570438178:AAEW3bEsIdF9iwVjA3Q1sFo5w1NrCyuJV
 ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_IDS', '').split(',') if id.strip()]
 ADMIN_USERNAMES = ['flooooooooooowy', 'katrinzagora']  # Админы по username (lowercase)
 SELLER_USERNAMES = ['fublat_666', 'shad0w_04', 'mikk4u']  # Продавцы по username (lowercase)
-POINTS_PER_RUBLE = 0.1  # 10% от суммы покупки в баллы
+POINTS_PER_RUBLE = 0.01  # 1% от суммы покупки в баллы
 
 
 # Вспомогательные функции для проверки ролей
@@ -174,13 +174,17 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard.append([InlineKeyboardButton("📱 Мой QR код", callback_data="my_qr")])
     keyboard.append([InlineKeyboardButton("💸 Списать баллы", callback_data="spend_points")])
     
-    # Команды для продавцов
-    if await is_seller(user_id):
+    # Проверяем права
+    is_admin_user = await is_admin(user_id)
+    is_seller_user = await is_seller(user_id)
+    
+    # Команды для продавцов (включая админов)
+    if is_seller_user or is_admin_user:
         keyboard.append([InlineKeyboardButton("💰 Добавить оплату", callback_data="add_payment")])
         keyboard.append([InlineKeyboardButton("📷 Сканировать QR", callback_data="scan_qr")])
     
     # Команды для админов
-    if await is_admin(user_id):
+    if is_admin_user:
         keyboard.append([InlineKeyboardButton("👥 Управление ролями", callback_data="manage_roles")])
         keyboard.append([InlineKeyboardButton("📢 Массовая рассылка", callback_data="broadcast")])
     
