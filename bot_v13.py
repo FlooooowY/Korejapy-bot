@@ -209,7 +209,7 @@ def handle_text(update: Update, context: CallbackContext):
                 seller_id=user_id,
                 amount=amount,
                 points_earned=points
-            ))
+            )
             
             update.message.reply_text(
                 f"✅ Оплата добавлена!\n"
