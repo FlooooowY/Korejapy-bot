@@ -18,7 +18,7 @@ fi
 # Определение пути к боту
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BOT_DIR="$SCRIPT_DIR"
-BOT_FILE="$BOT_DIR/bot.py"
+BOT_FILE="$BOT_DIR/bot_v13.py"
 
 # Проверка существования файла бота
 if [ ! -f "$BOT_FILE" ]; then
