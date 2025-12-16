@@ -1,0 +1,23 @@
+[Unit]
+Description=Korejapy Telegram Bot
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/MFDigitalBot
+ExecStart=/usr/bin/python3 /root/MFDigitalBot/bot.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=korejapy-bot
+
+# Ограничения ресурсов (опционально, раскомментируйте при необходимости)
+# MemoryLimit=512M
+# CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
+
