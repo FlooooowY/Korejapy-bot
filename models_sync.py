@@ -211,8 +211,53 @@ class BroadcastModel:
 
 class BirthdayMessageModel:
     @staticmethod
-    def set_birthday_message(message_text: str, photo_path: str = None) -> BirthdayMessage:
-        """Установить сообщение для рассылки в день рождения"""
+    def get_birthday_message():
+        """Получить текущее сообщение для рассылки в день рождения"""
+        session = get_session()
+        try:
+            return session.query(BirthdayMessage).filter_by(is_active=True).first()
+        finally:
+            session.close()
+    
+    @staticmethod
+    def update_birthday_message(message_text: str, photo_file_id: str = None):
+        """Обновить сообщение для рассылки в день рождения"""
+        session = get_session()
+        try:
+            # Ищем существующее сообщение
+            msg = session.query(BirthdayMessage).filter_by(is_active=True).first()
+            
+            if msg:
+                # Обновляем существующее
+                msg.message_text = message_text
+                if photo_file_id is not None:
+                    msg.photo_file_id = photo_file_id
+                msg.updated_at = datetime.utcnow()
+            else:
+                # Создаём новое
+                msg = BirthdayMessage(
+                    message_text=message_text,
+                    photo_file_id=photo_file_id,
+                    is_active=True
+                )
+                session.add(msg)
+            
+            session.commit()
+            return msg
+        except Exception as e:
+            session.rollback()
+            raise e
+        finally:
+            session.close()
+    
+    @staticmethod
+    def set_birthday_message(message_text: str, photo_file_id: str = None) -> BirthdayMessage:
+        """Установить сообщение для рассылки в день рождения (deprecated, используйте update_birthday_message)"""
+        return BirthdayMessageModel.update_birthday_message(message_text, photo_file_id)
+    
+    @staticmethod
+    def _old_set_birthday_message(message_text: str, photo_path: str = None) -> BirthdayMessage:
+        """Старый метод (deprecated)"""
         session = get_session()
         try:
             # Деактивируем все предыдущие сообщения

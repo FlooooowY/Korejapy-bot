@@ -59,9 +59,10 @@ class BirthdayMessage(Base):
     
     id = Column(Integer, primary_key=True)
     message_text = Column(Text, nullable=False)
-    photo_path = Column(String(500), nullable=True)
+    photo_file_id = Column(String(500), nullable=True)  # Telegram file_id
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 # Настройка базы данных (синхронная версия)
