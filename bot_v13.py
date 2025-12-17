@@ -218,6 +218,25 @@ def button_callback(update: Update, context: CallbackContext):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         context.user_data['editing_name'] = True
+        logger.info(f"Пользователь {user_id} начал изменение имени")
+        return
+    
+    # Пропустить фото при настройке рассылки ДР
+    elif data == "skip_birthday_photo":
+        if is_admin(user_id) and context.user_data.get('birthday_setup_step') == 'photo':
+            try:
+                birthday_text = context.user_data.get('birthday_text')
+                BirthdayMessageModel.update_birthday_message(birthday_text, None)
+                query.edit_message_text(
+                    "✅ Настройки сохранены!\n\n"
+                    "Рассылка в ДР будет отправляться только с текстом (без фото)\n\n"
+                    "Используйте /menu для возврата"
+                )
+                logger.info(f"Админ {user_id} настроил рассылку ДР (без фото)")
+            except Exception as e:
+                logger.error(f"Ошибка сохранения рассылки ДР: {e}")
+                query.edit_message_text("❌ Ошибка сохранения. Попробуйте позже.")
+            context.user_data.clear()
         return
     
     # Кнопка "Назад в меню"
@@ -335,23 +354,24 @@ def handle_text(update: Update, context: CallbackContext):
             update.message.reply_text("❌ Имя не может быть пустым\nПопробуйте ещё раз:")
             return
         
-        # Обновляем имя через модель
+        # Обновляем имя напрямую в БД
         try:
-            from database_sync import SessionLocal, User
-            session = SessionLocal()
-            db_user = session.query(User).filter_by(telegram_id=user_id).first()
-            if db_user:
-                db_user.profile_name = text.strip()
-                session.commit()
-                update.message.reply_text(
-                    f"✅ Имя успешно изменено на: {text.strip()}\n\n"
-                    "Используйте /menu для возврата в меню"
-                )
-            else:
-                update.message.reply_text("❌ Ошибка: пользователь не найден")
-            session.close()
+            import sqlite3
+            conn = sqlite3.connect('korejapy_bot.db')
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET profile_name = ? WHERE telegram_id = ?", (text.strip(), user_id))
+            conn.commit()
+            conn.close()
+            
+            update.message.reply_text(
+                f"✅ Имя успешно изменено на: {text.strip()}\n\n"
+                "Используйте /menu для возврата в меню"
+            )
+            logger.info(f"Пользователь {user_id} изменил имя на: {text.strip()}")
         except Exception as e:
-            logger.error(f"Ошибка изменения имени: {e}")
+            logger.error(f"Ошибка изменения имени для {user_id}: {e}")
+            import traceback
+            traceback.print_exc()
             update.message.reply_text("❌ Ошибка при изменении имени. Попробуйте позже.")
         
         context.user_data.clear()
@@ -648,15 +668,21 @@ def handle_text(update: Update, context: CallbackContext):
         except ValueError:
             update.message.reply_text("Пожалуйста, введите корректное число")
     
-    # Пропуск фото для рассылки ДР
+    # Пропуск фото для рассылки ДР (команда /skip - оставляем для совместимости)
     elif text == '/skip' and context.user_data.get('birthday_setup_step') == 'photo':
         if is_admin(user_id):
-            birthday_text = context.user_data.get('birthday_text')
-            BirthdayMessageModel.update_birthday_message(birthday_text, None)
-            update.message.reply_text(
-                "✅ Настройки сохранены!\n\n"
-                "Рассылка в ДР будет отправляться только с текстом (без фото)"
-            )
+            try:
+                birthday_text = context.user_data.get('birthday_text')
+                BirthdayMessageModel.update_birthday_message(birthday_text, None)
+                update.message.reply_text(
+                    "✅ Настройки сохранены!\n\n"
+                    "Рассылка в ДР будет отправляться только с текстом (без фото)\n\n"
+                    "Используйте /menu для возврата"
+                )
+                logger.info(f"Админ {user_id} настроил рассылку ДР (без фото)")
+            except Exception as e:
+                logger.error(f"Ошибка сохранения рассылки ДР: {e}")
+                update.message.reply_text("❌ Ошибка сохранения. Попробуйте позже.")
             context.user_data.clear()
         return
     
@@ -685,10 +711,15 @@ def handle_text(update: Update, context: CallbackContext):
         if is_admin(user_id):
             context.user_data['birthday_text'] = text
             context.user_data['birthday_setup_step'] = 'photo'
+            
+            keyboard = [[InlineKeyboardButton("⏭️ Пропустить фото", callback_data="skip_birthday_photo")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             update.message.reply_text(
                 "✅ Текст сохранён!\n\n"
                 "Теперь отправьте фото для поздравления\n"
-                "(или отправьте /skip чтобы пропустить)"
+                "Или нажмите кнопку чтобы пропустить:",
+                reply_markup=reply_markup
             )
         return
     
@@ -714,16 +745,27 @@ def handle_photo(update: Update, context: CallbackContext):
     
     # Фото для рассылки в ДР
     if context.user_data.get('birthday_setup_step') == 'photo' and is_admin(user_id):
-        photo = update.message.photo[-1]
-        photo_file_id = photo.file_id
-        birthday_text = context.user_data.get('birthday_text')
+        try:
+            photo = update.message.photo[-1]
+            photo_file_id = photo.file_id
+            birthday_text = context.user_data.get('birthday_text')
+            
+            BirthdayMessageModel.update_birthday_message(birthday_text, photo_file_id)
+            
+            update.message.reply_text(
+                "✅ Настройки рассылки в ДР сохранены!\n\n"
+                "📝 Текст: " + (birthday_text[:50] + "..." if len(birthday_text) > 50 else birthday_text) + "\n"
+                "📷 Фото: Загружено\n\n"
+                "Поздравления будут автоматически отправляться клиентам в день их рождения в 10:00\n\n"
+                "Используйте /menu для возврата"
+            )
+            logger.info(f"Админ {user_id} настроил рассылку ДР с фото")
+        except Exception as e:
+            logger.error(f"Ошибка сохранения фото рассылки ДР: {e}")
+            import traceback
+            traceback.print_exc()
+            update.message.reply_text("❌ Ошибка сохранения фото. Попробуйте позже.")
         
-        BirthdayMessageModel.update_birthday_message(birthday_text, photo_file_id)
-        
-        update.message.reply_text(
-            "✅ Настройки рассылки в ДР сохранены!\n\n"
-            "Поздравления будут автоматически отправляться клиентам в день их рождения"
-        )
         context.user_data.clear()
 
 
