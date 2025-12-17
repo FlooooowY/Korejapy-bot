@@ -93,7 +93,8 @@ def menu(update: Update, context: CallbackContext):
     user = UserModel.get_user(user_id)
     
     if not user:
-        update.message.reply_text("Сначала используйте /start")
+        if update.message:
+            update.message.reply_text("Сначала используйте /start")
         return
     
     keyboard = [
@@ -117,7 +118,17 @@ def menu(update: Update, context: CallbackContext):
         keyboard.append([InlineKeyboardButton("🎂 Настройка рассылки ДР", callback_data="birthday_settings")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("📋 Главное меню:", reply_markup=reply_markup)
+    
+    # Отправляем новое сообщение и сохраняем его ID
+    if update.message:
+        msg = update.message.reply_text("📋 Главное меню:", reply_markup=reply_markup)
+        user_menu_messages[user_id] = msg.message_id
+    elif update.callback_query:
+        try:
+            update.callback_query.edit_message_text("📋 Главное меню:", reply_markup=reply_markup)
+        except:
+            msg = update.callback_query.message.reply_text("📋 Главное меню:", reply_markup=reply_markup)
+            user_menu_messages[user_id] = msg.message_id
 
 def balance(update: Update, context: CallbackContext):
     """Показать баланс"""
@@ -172,15 +183,26 @@ def button_callback(update: Update, context: CallbackContext):
                 f"💰 Баллов: {user.loyalty_points:.2f}\n"
                 f"ID: {user.telegram_id}"
             )
-            query.edit_message_text(profile_text)
+            # Добавляем кнопку "Назад"
+            keyboard = [[InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu")]]
+            query.edit_message_text(profile_text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             query.edit_message_text("Профиль не заполнен. Используйте /start для регистрации")
+        return
+    
+    # Кнопка "Назад в меню"
+    elif data == "back_to_menu":
+        menu(update, context)
         return
     
     elif data == "balance":
         user = UserModel.get_user(user_id)
         if user:
-            query.edit_message_text(f"💰 Ваш баланс: {user.loyalty_points:.2f} баллов")
+            keyboard = [[InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu")]]
+            query.edit_message_text(
+                f"💰 Ваш баланс: {user.loyalty_points:.2f} баллов",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
     
 # my_qr удалён
     
@@ -188,34 +210,40 @@ def button_callback(update: Update, context: CallbackContext):
     elif data == "exchange_points":
         user = UserModel.get_user(user_id)
         if user:
+            keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="back_to_menu")]]
             query.edit_message_text(
                 f"💸 Обмен баллов на скидку\n\n"
                 f"Ваш баланс: {user.loyalty_points:.2f} баллов\n"
                 f"Курс: 5 баллов = 1 рубль\n\n"
-                "Введите количество баллов для обмена:"
+                "Введите количество баллов для обмена:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             context.user_data['waiting_for_exchange_points'] = True
     
     # Списание баллов продавцом (по username/телефону/ID)
     elif data == "spend_points_seller":
         if is_seller(user_id):
+            keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="back_to_menu")]]
             query.edit_message_text(
                 "💸 Списание баллов\n\n"
                 "Введите данные клиента:\n"
                 "- Username (например: @ivan или ivan)\n"
                 "- Номер телефона\n"
-                "- ID клиента"
+                "- ID клиента",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             context.user_data['waiting_for_client_search'] = True
     
     elif data == "add_payment":
         if is_seller(user_id):
+            keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="back_to_menu")]]
             query.edit_message_text(
                 "💰 Добавление оплаты\n\n"
                 "Шаг 1/2: Введите данные клиента:\n"
                 "- Username (@ivan или ivan)\n"
                 "- Номер телефона\n"
-                "- ID клиента"
+                "- ID клиента",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             context.user_data['waiting_for_payment_client'] = True
     
@@ -223,17 +251,41 @@ def button_callback(update: Update, context: CallbackContext):
     
     elif data == "manage_roles":
         if is_admin(user_id):
+            keyboard = [[InlineKeyboardButton("◀️ Назад", callback_data="back_to_menu")]]
             query.edit_message_text(
                 "👥 Управление ролями\n\n"
                 "Отправьте команду в формате:\n"
                 "/setrole <user_id> <role>\n\n"
-                "Роли: creator, admin, seller, client"
+                "Роли: creator, admin, seller, client",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
     
     elif data == "broadcast":
         if is_admin(user_id):
-            query.edit_message_text("📢 Массовая рассылка\n\nОтправьте сообщение для рассылки")
+            keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="back_to_menu")]]
+            query.edit_message_text(
+                "📢 Массовая рассылка\n\nОтправьте сообщение для рассылки",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
             context.user_data['waiting_for_broadcast'] = True
+    
+    # Настройка рассылки в ДР
+    elif data == "birthday_settings":
+        if is_admin(user_id):
+            # Получаем текущие настройки
+            birthday_msg = BirthdayMessageModel.get_birthday_message()
+            current_text = birthday_msg.message_text if birthday_msg else "Не настроено"
+            has_photo = birthday_msg and birthday_msg.photo_file_id
+            
+            keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="back_to_menu")]]
+            query.edit_message_text(
+                "🎂 Настройка рассылки в День Рождения\n\n"
+                f"Текущий текст:\n{current_text}\n"
+                f"Фото: {'✅ Есть' if has_photo else '❌ Нет'}\n\n"
+                "Введите новый текст поздравления:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            context.user_data['birthday_setup_step'] = 'text'
 
 def handle_text(update: Update, context: CallbackContext):
     """Обработчик текста"""
@@ -531,6 +583,18 @@ def handle_text(update: Update, context: CallbackContext):
         except ValueError:
             update.message.reply_text("Пожалуйста, введите корректное число")
     
+    # Пропуск фото для рассылки ДР
+    elif text == '/skip' and context.user_data.get('birthday_setup_step') == 'photo':
+        if is_admin(user_id):
+            birthday_text = context.user_data.get('birthday_text')
+            BirthdayMessageModel.update_birthday_message(birthday_text, None)
+            update.message.reply_text(
+                "✅ Настройки сохранены!\n\n"
+                "Рассылка в ДР будет отправляться только с текстом (без фото)"
+            )
+            context.user_data.clear()
+        return
+    
     # Команда setrole
     elif text.startswith('/setrole'):
         if is_admin(user_id):
@@ -551,6 +615,18 @@ def handle_text(update: Update, context: CallbackContext):
             else:
                 update.message.reply_text("Неверный формат. Используйте: /setrole <user_id> <role>")
     
+    # Настройка текста для рассылки в ДР
+    elif context.user_data.get('birthday_setup_step') == 'text':
+        if is_admin(user_id):
+            context.user_data['birthday_text'] = text
+            context.user_data['birthday_setup_step'] = 'photo'
+            update.message.reply_text(
+                "✅ Текст сохранён!\n\n"
+                "Теперь отправьте фото для поздравления\n"
+                "(или отправьте /skip чтобы пропустить)"
+            )
+        return
+    
     # Рассылка
     elif context.user_data.get('waiting_for_broadcast'):
         if is_admin(user_id):
@@ -565,6 +641,25 @@ def handle_text(update: Update, context: CallbackContext):
                     pass
             update.message.reply_text(f"✅ Отправлено: {sent} из {len(users)}")
             context.user_data.clear()
+
+
+def handle_photo(update: Update, context: CallbackContext):
+    """Обработчик фотографий"""
+    user_id = update.effective_user.id
+    
+    # Фото для рассылки в ДР
+    if context.user_data.get('birthday_setup_step') == 'photo' and is_admin(user_id):
+        photo = update.message.photo[-1]
+        photo_file_id = photo.file_id
+        birthday_text = context.user_data.get('birthday_text')
+        
+        BirthdayMessageModel.update_birthday_message(birthday_text, photo_file_id)
+        
+        update.message.reply_text(
+            "✅ Настройки рассылки в ДР сохранены!\n\n"
+            "Поздравления будут автоматически отправляться клиентам в день их рождения"
+        )
+        context.user_data.clear()
 
 
 def handle_contact(update: Update, context: CallbackContext):
@@ -598,6 +693,45 @@ def handle_contact(update: Update, context: CallbackContext):
         )
 
 
+def send_birthday_greetings(context: CallbackContext):
+    """Отправка поздравлений именинникам"""
+    from datetime import datetime
+    
+    # Получаем пользователей с ДР сегодня
+    birthday_users = UserModel.get_users_with_birthday_today()
+    
+    if not birthday_users:
+        return
+    
+    # Получаем настройки рассылки
+    birthday_msg = BirthdayMessageModel.get_birthday_message()
+    
+    if not birthday_msg or not birthday_msg.message_text:
+        logger.warning("Настройки рассылки ДР не настроены")
+        return
+    
+    sent = 0
+    for user in birthday_users:
+        try:
+            if birthday_msg.photo_file_id:
+                context.bot.send_photo(
+                    chat_id=user.telegram_id,
+                    photo=birthday_msg.photo_file_id,
+                    caption=birthday_msg.message_text
+                )
+            else:
+                context.bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=birthday_msg.message_text
+                )
+            sent += 1
+            time.sleep(0.1)
+        except Exception as e:
+            logger.error(f"Ошибка отправки ДР поздравления {user.telegram_id}: {e}")
+    
+    logger.info(f"Отправлено {sent} поздравлений с ДР")
+
+
 def main():
     """Запуск бота"""
     # Инициализация БД
@@ -609,13 +743,44 @@ def main():
     updater = Updater(BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
     
+    # Настройка меню с быстрыми командами
+    from telegram import BotCommand
+    try:
+        updater.bot.set_my_commands([
+            BotCommand("start", "🏠 Начало работы"),
+            BotCommand("menu", "📋 Главное меню"),
+            BotCommand("balance", "💰 Мой баланс"),
+        ])
+        logger.info("Быстрые команды настроены")
+    except Exception as e:
+        logger.error(f"Ошибка настройки команд: {e}")
+    
     # Регистрация обработчиков
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("menu", menu))
     dp.add_handler(CommandHandler("balance", balance))
     dp.add_handler(CallbackQueryHandler(button_callback))
+    dp.add_handler(MessageHandler(Filters.photo, handle_photo))
     dp.add_handler(MessageHandler(Filters.contact, handle_contact))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
+    
+    # Настройка автоматической рассылки ДР (каждый день в 10:00)
+    from telegram.ext import JobQueue
+    job_queue = updater.job_queue
+    
+    # Отправка поздравлений каждый день в 10:00 (36000 секунд = 10 часов)
+    import datetime
+    now = datetime.datetime.now()
+    target_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    
+    if now > target_time:
+        target_time += datetime.timedelta(days=1)
+    
+    delay = (target_time - now).total_seconds()
+    
+    job_queue.run_once(send_birthday_greetings, delay)
+    job_queue.run_repeating(send_birthday_greetings, interval=86400, first=delay)
+    logger.info("Автоматическая рассылка ДР настроена на 10:00 каждый день")
     
     # Запуск
     logger.info("Бот запущен")
