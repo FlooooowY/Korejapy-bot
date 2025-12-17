@@ -1,12 +1,11 @@
 import os
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, Filters, CallbackContext
 from dotenv import load_dotenv
 import time
 
 from models_sync import UserModel, PaymentModel, BroadcastModel, BirthdayMessageModel
-from telegram import KeyboardButton, ReplyKeyboardMarkup
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -132,27 +131,7 @@ def balance(update: Update, context: CallbackContext):
     else:
         update.message.reply_text("Пользователь не найден")
 
-def my_qr(update: Update, context: CallbackContext):
-    """Генерация QR кода"""
-    user_id = update.effective_user.id
-    user = UserModel.get_user(user_id)
-    
-    if not user:
-        update.message.reply_text("Пользователь не найден")
-        return
-    
-    try:
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        qr_image = loop.run_until_complete(generate_qr_code(user_id, user.username))
-        update.message.reply_photo(
-            photo=qr_image,
-            caption=f"📱 Ваш QR код\nID: {user_id}"
-        )
-    except Exception as e:
-        logger.error(f"Ошибка генерации QR: {e}")
-        update.message.reply_text("Ошибка при генерации QR кода")
+# Функция my_qr удалена - больше не используется QR код
 
 def button_callback(update: Update, context: CallbackContext):
     """Обработчик кнопок"""
@@ -166,8 +145,8 @@ def button_callback(update: Update, context: CallbackContext):
     if data == "start_registration":
         query.edit_message_text(
             "📝 Регистрация профиля\n\n"
-            "Шаг 1/3: Введите ваше имя (только английскими буквами)\n"
-            "Например: Ivan"
+            "Шаг 1/3: Введите ваше имя или ФИО\n"
+            "Например: Иван Петров или ivan123"
         )
         context.user_data['registration_step'] = 'name'
         return
@@ -203,53 +182,44 @@ def button_callback(update: Update, context: CallbackContext):
         if user:
             query.edit_message_text(f"💰 Ваш баланс: {user.loyalty_points:.2f} баллов")
     
-    elif data == "my_qr":
+# my_qr удалён
+    
+    # Обмен баллов для клиента
+    elif data == "exchange_points":
         user = UserModel.get_user(user_id)
         if user:
-            try:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                qr_image = loop.run_until_complete(generate_qr_code(user_id, user.username))
-                query.message.reply_photo(photo=qr_image, caption=f"📱 Ваш QR код\nID: {user_id}")
-            except:
-                query.edit_message_text("Ошибка генерации QR")
+            query.edit_message_text(
+                f"💸 Обмен баллов на скидку\n\n"
+                f"Ваш баланс: {user.loyalty_points:.2f} баллов\n"
+                f"Курс: 5 баллов = 1 рубль\n\n"
+                "Введите количество баллов для обмена:"
+            )
+            context.user_data['waiting_for_exchange_points'] = True
     
-    elif data == "spend_points":
-        # Если продавец - сканирует QR код обмена
+    # Списание баллов продавцом (по username/телефону/ID)
+    elif data == "spend_points_seller":
         if is_seller(user_id):
             query.edit_message_text(
-                "💸 Списание баллов (для продавца)\n\n"
-                "Отправьте фотографию QR кода обмена баллов от клиента"
+                "💸 Списание баллов\n\n"
+                "Введите данные клиента:\n"
+                "- Username (например: @ivan или ivan)\n"
+                "- Номер телефона\n"
+                "- ID клиента"
             )
-            context.user_data['waiting_for_spend_qr'] = True
-        else:
-            # Если клиент - вводит количество баллов
-            user = UserModel.get_user(user_id)
-            if user:
-                query.edit_message_text(
-                    f"💸 Обмен баллов на скидку\n\n"
-                    f"Ваш баланс: {user.loyalty_points:.2f} баллов\n"
-                    f"Курс: 5 баллов = 1 рубль\n\n"
-                    "Введите количество баллов для обмена:"
-                )
-                context.user_data['waiting_for_spend_points'] = True
+            context.user_data['waiting_for_client_search'] = True
     
     elif data == "add_payment":
         if is_seller(user_id):
             query.edit_message_text(
                 "💰 Добавление оплаты\n\n"
-                "Отправьте сумму покупки числом (например: 1500)"
+                "Шаг 1/2: Введите данные клиента:\n"
+                "- Username (@ivan или ivan)\n"
+                "- Номер телефона\n"
+                "- ID клиента"
             )
-            context.user_data['waiting_for_amount'] = True
+            context.user_data['waiting_for_payment_client'] = True
     
-    elif data == "scan_qr":
-        if is_seller(user_id):
-            query.edit_message_text(
-                "📷 Сканирование QR кода\n\n"
-                "Отправьте фотографию QR кода покупателя или введите его ID:"
-            )
-            context.user_data['waiting_for_qr'] = True
+# scan_qr удалён - больше не используется
     
     elif data == "manage_roles":
         if is_admin(user_id):
@@ -270,17 +240,17 @@ def handle_text(update: Update, context: CallbackContext):
     text = update.message.text
     user_id = update.effective_user.id
     
-    # Обработка регистрации - Шаг 1: Имя
+    # Обработка регистрации - Шаг 1: Имя (ФИО или кастомное)
     if context.user_data.get('registration_step') == 'name':
-        # Проверка на английские буквы
-        if not text.replace(' ', '').isalpha() or not all(ord(c) < 128 for c in text):
+        # Проверка что имя не пустое
+        if not text.strip():
             update.message.reply_text(
-                "❌ Пожалуйста, используйте только английские буквы\n"
+                "❌ Имя не может быть пустым\n"
                 "Попробуйте ещё раз:"
             )
             return
         
-        context.user_data['profile_name'] = text
+        context.user_data['profile_name'] = text.strip()
         context.user_data['registration_step'] = 'phone'
         
         # Создаём кнопку для отправки телефона
@@ -290,7 +260,8 @@ def handle_text(update: Update, context: CallbackContext):
         update.message.reply_text(
             f"✅ Отлично, {text}!\n\n"
             "Шаг 2/3: Поделитесь номером телефона\n"
-            "Нажмите кнопку ниже 👇",
+            "Нажмите кнопку ниже 👇\n\n"
+            "Telegram автоматически отправит ваш номер телефона",
             reply_markup=reply_markup
         )
         return
@@ -324,92 +295,197 @@ def handle_text(update: Update, context: CallbackContext):
         # Сохраняем профиль
         profile_name = context.user_data.get('profile_name')
         phone_number = context.user_data.get('phone_number')
+        user = update.effective_user
         
+        # Обновляем профиль (username берется автоматически из Telegram)
         UserModel.update_profile(user_id, profile_name, phone_number, birth_date)
         
         # Очищаем данные регистрации
         context.user_data.clear()
         
+        # Формируем сообщение с данными
+        profile_info = f"Имя: {profile_name}\n"
+        profile_info += f"Телефон: {phone_number}\n"
+        if user.username:
+            profile_info += f"Username: @{user.username}\n"
+        profile_info += f"Дата рождения: {text}\n"
+        profile_info += f"ID: {user_id}"
+        
         update.message.reply_text(
             "✅ Регистрация завершена!\n\n"
+            "📋 Ваши данные:\n" + profile_info + "\n\n"
             "Теперь вы можете пользоваться всеми функциями бота.\n"
             "Используйте /menu для начала работы",
             reply_markup=ReplyKeyboardMarkup([[KeyboardButton("/menu")]], resize_keyboard=True)
         )
         return
     
-    # Обработка суммы для оплаты (первый шаг)
-    if context.user_data.get('waiting_for_amount'):
+    # Поиск клиента для добавления оплаты
+    if context.user_data.get('waiting_for_payment_client'):
+        # Ищем клиента по username/телефону/ID
+        client = None
+        
+        # Попробуем найти по ID
+        if text.isdigit():
+            client = UserModel.get_user(int(text))
+        # По номеру телефона
+        elif text.replace('+', '').replace(' ', '').replace('-', '').isdigit():
+            phone = text.replace('+', '').replace(' ', '').replace('-', '')
+            client = UserModel.find_user_by_phone(phone)
+        # По username
+        else:
+            client = UserModel.find_user_by_username(text)
+        
+        if not client:
+            update.message.reply_text(
+                "❌ Клиент не найден\n\n"
+                "Попробуйте ещё раз или используйте /menu для отмены"
+            )
+            return
+        
+        context.user_data['client_id'] = client.telegram_id
+        context.user_data['waiting_for_payment_client'] = False
+        context.user_data['waiting_for_payment_amount'] = True
+        
+        update.message.reply_text(
+            f"✅ Клиент найден:\n"
+            f"Имя: {client.profile_name or client.first_name}\n"
+            f"ID: {client.telegram_id}\n\n"
+            "Шаг 2/2: Введите сумму покупки (например: 1500)"
+        )
+        return
+    
+    # Обработка суммы после выбора клиента
+    elif context.user_data.get('waiting_for_payment_amount'):
         try:
             amount = float(text.replace(',', '.'))
             if amount <= 0:
                 update.message.reply_text("Сумма должна быть больше нуля")
                 return
             
-            context.user_data['payment_amount'] = amount
-            context.user_data['waiting_for_amount'] = False
-            context.user_data['waiting_for_qr_photo'] = True
+            client_id = context.user_data.get('client_id')
+            client = UserModel.get_user(client_id)
+            
+            if not client:
+                update.message.reply_text("Ошибка: клиент не найден")
+                context.user_data.clear()
+                return
+            
+            # Начисляем баллы
+            points = amount * POINTS_PER_RUBLE
+            UserModel.add_points(client_id, points)
+            PaymentModel.create_payment(
+                client_id=client.id,
+                seller_id=user_id,
+                amount=amount,
+                points_earned=points
+            )
             
             update.message.reply_text(
-                f"✅ Сумма: {amount} руб.\n\n"
-                "Теперь отправьте фотографию QR кода покупателя или введите его ID:"
+                f"✅ Оплата добавлена!\n\n"
+                f"Клиент: {client.profile_name or client.first_name}\n"
+                f"Сумма: {amount}₽\n"
+                f"Баллов начислено: +{points:.2f}"
             )
+            
+            # Уведомление клиента
+            try:
+                context.bot.send_message(
+                    chat_id=client_id,
+                    text=f"💰 Оплата {amount}₽\nНачислено: {points:.2f} баллов"
+                )
+            except:
+                pass
+            
+            context.user_data.clear()
         except ValueError:
             update.message.reply_text("Пожалуйста, введите корректную сумму (число)")
     
-    # Обработка ID клиента после ввода суммы
-    elif context.user_data.get('waiting_for_qr_photo') and not context.user_data.get('waiting_for_qr'):
-        # Пытаемся распарсить QR код или получить ID напрямую
-        client_id = None
-        try:
-            qr_data = parse_qr_code(text)
-            if qr_data.get('valid'):
-                client_id = qr_data['user_id']
-            else:
-                client_id = int(text)
-        except:
-            update.message.reply_text("Неверный формат. Введите ID покупателя или QR код")
+    # Поиск клиента для списания баллов продавцом
+    elif context.user_data.get('waiting_for_client_search'):
+        # Ищем клиента по username/телефону/ID
+        client = None
+        
+        if text.isdigit():
+            client = UserModel.get_user(int(text))
+        elif text.replace('+', '').replace(' ', '').replace('-', '').isdigit():
+            phone = text.replace('+', '').replace(' ', '').replace('-', '')
+            client = UserModel.find_user_by_phone(phone)
+        else:
+            client = UserModel.find_user_by_username(text)
+        
+        if not client:
+            update.message.reply_text("❌ Клиент не найден\n\nПопробуйте ещё раз")
             return
         
-        if client_id:
-            amount = context.user_data.get('payment_amount')
-            if amount:
-                # Обрабатываем оплату сразу
-                client = UserModel.get_user(client_id)
-                if not client:
-                    update.message.reply_text("Клиент не найден")
-                    context.user_data.clear()
-                    return
-                
-                points = amount * POINTS_PER_RUBLE
-                UserModel.add_points(client_id, points)
-                PaymentModel.create_payment(
-                    client_id=client.id,
-                    seller_id=user_id,
-                    amount=amount,
-                    points_earned=points
-                )
-                
+        context.user_data['spend_client_id'] = client.telegram_id
+        context.user_data['waiting_for_client_search'] = False
+        context.user_data['waiting_for_spend_amount'] = True
+        
+        update.message.reply_text(
+            f"✅ Клиент найден:\n"
+            f"Имя: {client.profile_name or client.first_name}\n"
+            f"Баланс: {client.loyalty_points:.2f} баллов\n\n"
+            "Введите количество баллов для списания:"
+        )
+        return
+    
+    # Списание баллов продавцом
+    elif context.user_data.get('waiting_for_spend_amount'):
+        try:
+            points = float(text.replace(',', '.'))
+            if points <= 0:
+                update.message.reply_text("Количество баллов должно быть больше нуля")
+                return
+            
+            client_id = context.user_data.get('spend_client_id')
+            client = UserModel.get_user(client_id)
+            
+            if not client:
+                update.message.reply_text("Клиент не найден")
+                context.user_data.clear()
+                return
+            
+            if client.loyalty_points < points:
                 update.message.reply_text(
-                    f"✅ Оплата добавлена!\n"
-                    f"Клиент: {client.first_name}\n"
-                    f"Сумма: {amount}₽\n"
-                    f"Баллов: +{points:.2f}"
+                    f"❌ У клиента недостаточно баллов!\n"
+                    f"Баланс: {client.loyalty_points:.2f}\n"
+                    f"Запрошено: {points:.2f}"
+                )
+                context.user_data.clear()
+                return
+            
+            # Списываем баллы
+            discount = points / 5.0
+            success = UserModel.spend_points(client_id, points)
+            
+            if success:
+                updated_client = UserModel.get_user(client_id)
+                update.message.reply_text(
+                    f"✅ Баллы списаны!\n\n"
+                    f"Клиент: {client.profile_name or client.first_name}\n"
+                    f"Списано: {points:.2f} баллов\n"
+                    f"Скидка: {discount:.2f} руб.\n"
+                    f"Остаток: {updated_client.loyalty_points:.2f}"
                 )
                 
                 # Уведомление клиента
                 try:
                     context.bot.send_message(
                         chat_id=client_id,
-                        text=f"💰 Оплата {amount}₽\nНачислено: {points:.2f} баллов"
+                        text=f"💸 Использовано {points:.2f} баллов\nСкидка: {discount:.2f} руб."
                     )
                 except:
                     pass
-                
-                context.user_data.clear()
+            else:
+                update.message.reply_text("Ошибка при списании баллов")
+            
+            context.user_data.clear()
+        except ValueError:
+            update.message.reply_text("Пожалуйста, введите корректное число")
     
-    # Списание баллов (обмен) - клиент вводит количество
-    elif context.user_data.get('waiting_for_spend_points'):
+    # Обмен баллов (для клиента) - показываем информацию
+    elif context.user_data.get('waiting_for_exchange_points'):
         try:
             points = float(text.replace(',', '.'))
             if points <= 0:
@@ -434,101 +510,26 @@ def handle_text(update: Update, context: CallbackContext):
             # Курс обмена: 5 баллов = 1 рубль
             discount_amount = points / 5.0
             
-            # Генерируем QR код для обмена
-            try:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                # Данные для QR кода обмена
-                qr_data = f"KOREJAPY_SPEND_{user_id}_{points}"
-                qr_image = loop.run_until_complete(generate_spend_qr_code(user_id, points, qr_data))
-                
-                update.message.reply_photo(
-                    photo=qr_image,
-                    caption=(
-                        f"💸 QR код для обмена баллов\n\n"
-                        f"Баллов к обмену: {points:.2f}\n"
-                        f"Скидка: {discount_amount:.2f} руб.\n"
-                        f"Курс: 5 баллов = 1 рубль\n\n"
-                        f"Покажите этот QR код продавцу"
-                    )
-                )
-                context.user_data.clear()
-            except Exception as e:
-                logger.error(f"Ошибка генерации QR для обмена: {e}")
-                update.message.reply_text("Ошибка при генерации QR кода")
-                context.user_data.clear()
+            # Показываем информацию для продавца
+            user_info = f"ID: {user_id}"
+            if user.profile_name:
+                user_info += f"\nИмя: {user.profile_name}"
+            if user.phone_number:
+                user_info += f"\nТелефон: {user.phone_number}"
+            if user.username:
+                user_info += f"\nUsername: @{user.username}"
+            
+            update.message.reply_text(
+                f"💸 Информация для обмена баллов\n\n"
+                f"Баллов к обмену: {points:.2f}\n"
+                f"Скидка: {discount_amount:.2f} руб.\n"
+                f"Курс: 5 баллов = 1 рубль\n\n"
+                f"📋 Сообщите продавцу:\n{user_info}\n\n"
+                f"Продавец спишет баллы через свой интерфейс"
+            )
+            context.user_data.clear()
         except ValueError:
             update.message.reply_text("Пожалуйста, введите корректное число")
-    
-    # Обработка QR кода в текстовом виде
-    elif context.user_data.get('waiting_for_qr'):
-        # Пытаемся распарсить QR код или получить ID напрямую
-        client_id = None
-        try:
-            qr_data = parse_qr_code(text)
-            if qr_data.get('valid'):
-                client_id = qr_data['user_id']
-            else:
-                client_id = int(text)
-        except:
-            update.message.reply_text("Неверный формат. Введите ID покупателя или QR код")
-            return
-        
-        if client_id:
-            update.message.reply_text(
-                f"✅ ID покупателя: {client_id}\n\n"
-                "Введите сумму покупки:"
-            )
-            context.user_data['client_id'] = client_id
-            context.user_data['waiting_for_qr'] = False
-            context.user_data['waiting_for_amount_after_qr'] = True
-    
-    # Обработка суммы после QR
-    elif context.user_data.get('waiting_for_amount_after_qr'):
-        try:
-            amount = float(text.replace(',', '.'))
-            if amount <= 0:
-                update.message.reply_text("Сумма должна быть больше нуля")
-                return
-            
-            client_id = context.user_data.get('client_id')
-            if client_id:
-                client = UserModel.get_user(client_id)
-                if not client:
-                    update.message.reply_text("Клиент не найден")
-                    context.user_data.clear()
-                    return
-                
-                points = amount * POINTS_PER_RUBLE
-                UserModel.add_points(client_id, points)
-                PaymentModel.create_payment(
-                    client_id=client.id,
-                    seller_id=user_id,
-                    amount=amount,
-                    points_earned=points
-                )
-                
-                update.message.reply_text(
-                    f"✅ Оплата добавлена!\n"
-                    f"Клиент: {client.first_name}\n"
-                    f"Сумма: {amount}₽\n"
-                    f"Баллов: +{points:.2f}"
-                )
-                
-                # Уведомление клиента
-                try:
-                    context.bot.send_message(
-                        chat_id=client_id,
-                        text=f"💰 Оплата {amount}₽\nНачислено: {points:.2f} баллов"
-                    )
-                except:
-                    pass
-                
-                context.user_data.clear()
-        except ValueError:
-            update.message.reply_text("Пожалуйста, введите корректную сумму (число)")
     
     # Команда setrole
     elif text.startswith('/setrole'):
@@ -565,15 +566,7 @@ def handle_text(update: Update, context: CallbackContext):
             update.message.reply_text(f"✅ Отправлено: {sent} из {len(users)}")
             context.user_data.clear()
 
-def handle_photo(update: Update, context: CallbackContext):
-    """Обработчик фотографий (QR коды)"""
-    user_id = update.effective_user.id
-    
-    if not is_seller(user_id):
-        return
-    
-    # Обработка QR кода после ввода суммы (через "Добавить оплату")
-    if context.user_data.get('waiting_for_qr_photo'):
+# handle_photo удален - QR коды больше не используются
         photo = update.message.photo[-1]  # Берем фото наибольшего размера
         file = context.bot.get_file(photo.file_id)
         
@@ -730,6 +723,7 @@ def handle_photo(update: Update, context: CallbackContext):
 def handle_contact(update: Update, context: CallbackContext):
     """Обработчик контакта (номер телефона)"""
     user_id = update.effective_user.id
+    user = update.effective_user
     
     if context.user_data.get('registration_step') == 'phone':
         contact = update.message.contact
@@ -743,8 +737,14 @@ def handle_contact(update: Update, context: CallbackContext):
         context.user_data['phone_number'] = phone_number
         context.user_data['registration_step'] = 'birth_date'
         
+        # Сохраняем также username из Telegram
+        username_info = ""
+        if user.username:
+            username_info = f"Username: @{user.username}\n"
+        
         update.message.reply_text(
-            f"✅ Номер телефона сохранён: {phone_number}\n\n"
+            f"✅ Номер телефона сохранён: {phone_number}\n"
+            f"{username_info}\n"
             "Шаг 3/3: Введите дату рождения\n"
             "Формат: ДД.ММ.ГГГГ (например: 25.12.1995)",
             reply_markup=ReplyKeyboardMarkup([[KeyboardButton("/menu")]], resize_keyboard=True)
