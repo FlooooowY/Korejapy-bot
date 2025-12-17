@@ -57,11 +57,13 @@ def migrate_birthday_table(db_path='korejapy_bot.db'):
                 cursor.execute("ALTER TABLE birthday_messages ADD COLUMN photo_file_id TEXT")
                 print("  ✅ Колонка photo_file_id добавлена")
             
-            # Добавляем updated_at если нет
+            # Добавляем updated_at если нет (без DEFAULT для совместимости)
             if 'updated_at' not in columns:
                 print("  ➕ Добавляем колонку updated_at...")
-                cursor.execute("ALTER TABLE birthday_messages ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-                print("  ✅ Колонка updated_at добавлена")
+                cursor.execute("ALTER TABLE birthday_messages ADD COLUMN updated_at TIMESTAMP")
+                # Устанавливаем текущее время для существующих записей
+                cursor.execute("UPDATE birthday_messages SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+                print("  ✅ Колонка updated_at добавлена и заполнена")
         
         conn.commit()
         print("\n✅ Миграция birthday_messages завершена!")
