@@ -61,31 +61,46 @@ def start(update: Update, context: CallbackContext):
     except Exception as e:
         logger.error(f"Ошибка отправки логотипа: {e}")
     
-    # Проверка ролей
+    # Проверка ролей и автоматическая регистрация админов/продавцов
     if user.username and user.username.lower() in [u.lower() for u in ADMIN_USERNAMES]:
         if db_user.role not in ['admin', 'creator']:
             UserModel.update_role(user.id, 'admin')
+        # Админы автоматически зарегистрированы
+        if not db_user.is_registered:
+            from database_sync import SessionLocal
+            session = SessionLocal()
+            db_user.is_registered = True
+            session.commit()
+            session.close()
         welcome_text = f"👑 Добро пожаловать, @{user.username}!\nИспользуйте /menu"
+        update.message.reply_text(welcome_text)
     elif user.username and user.username.lower() in [u.lower() for u in SELLER_USERNAMES]:
         if db_user.role not in ['seller', 'admin', 'creator']:
             UserModel.update_role(user.id, 'seller')
+        # Продавцы автоматически зарегистрированы
+        if not db_user.is_registered:
+            from database_sync import SessionLocal
+            session = SessionLocal()
+            db_user.is_registered = True
+            session.commit()
+            session.close()
         welcome_text = f"🛍️ Добро пожаловать, @{user.username}!\nИспользуйте /menu"
-    else:
-        welcome_text = "✨ Добро пожаловать в Korejapy!\n\nИспользуйте /menu"
-    
-    # Проверяем регистрацию
-    if not db_user.is_registered and db_user.role == 'client':
-        keyboard = [
-            [InlineKeyboardButton("📝 Зарегистрироваться", callback_data="start_registration")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(
-            "📝 Для использования бота необходимо пройти регистрацию.\n\n"
-            "Это займет всего минуту!",
-            reply_markup=reply_markup
-        )
-    else:
         update.message.reply_text(welcome_text)
+    else:
+        # Для клиентов - обязательная регистрация
+        if not db_user.is_registered:
+            keyboard = [
+                [InlineKeyboardButton("📝 Зарегистрироваться", callback_data="start_registration")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            update.message.reply_text(
+                "📝 Для использования бота необходимо пройти регистрацию.\n\n"
+                "Это займет всего минуту!",
+                reply_markup=reply_markup
+            )
+        else:
+            welcome_text = "✨ Добро пожаловать в Korejapy!\n\nИспользуйте /menu"
+            update.message.reply_text(welcome_text)
 
 def menu(update: Update, context: CallbackContext):
     """Главное меню"""
