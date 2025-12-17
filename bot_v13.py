@@ -98,20 +98,24 @@ def menu(update: Update, context: CallbackContext):
         return
     
     keyboard = [
+        [InlineKeyboardButton("👤 Мой профиль", callback_data="my_profile")],
         [InlineKeyboardButton("📊 Мой баланс", callback_data="balance")],
-        [InlineKeyboardButton("📱 Мой QR код", callback_data="my_qr")],
-        [InlineKeyboardButton("💸 Списать баллы", callback_data="spend_points")],
     ]
+    
+    # Команды для клиентов
+    if user.role == 'client':
+        keyboard.append([InlineKeyboardButton("💸 Обменять баллы", callback_data="exchange_points")])
     
     # Команды для продавцов и админов
     if user.role in ['seller', 'admin', 'creator']:
         keyboard.append([InlineKeyboardButton("💰 Добавить оплату", callback_data="add_payment")])
-        keyboard.append([InlineKeyboardButton("📷 Сканировать QR", callback_data="scan_qr")])
+        keyboard.append([InlineKeyboardButton("💸 Списать баллы", callback_data="spend_points_seller")])
     
     # Команды для админов
     if user.role in ['admin', 'creator']:
         keyboard.append([InlineKeyboardButton("👥 Управление ролями", callback_data="manage_roles")])
         keyboard.append([InlineKeyboardButton("📢 Массовая рассылка", callback_data="broadcast")])
+        keyboard.append([InlineKeyboardButton("🎂 Настройка рассылки ДР", callback_data="birthday_settings")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text("📋 Главное меню:", reply_markup=reply_markup)
@@ -158,7 +162,43 @@ def button_callback(update: Update, context: CallbackContext):
     user_id = query.from_user.id
     data = query.data
     
-    if data == "balance":
+    # Регистрация
+    if data == "start_registration":
+        query.edit_message_text(
+            "📝 Регистрация профиля\n\n"
+            "Шаг 1/3: Введите ваше имя (только английскими буквами)\n"
+            "Например: Ivan"
+        )
+        context.user_data['registration_step'] = 'name'
+        return
+    
+    # Мой профиль
+    elif data == "my_profile":
+        user = UserModel.get_user(user_id)
+        if user and user.is_registered:
+            from datetime import datetime
+            birth_date_formatted = "Не указана"
+            if user.birth_date:
+                try:
+                    dt = datetime.strptime(user.birth_date, '%Y-%m-%d')
+                    birth_date_formatted = dt.strftime('%d.%m.%Y')
+                except:
+                    birth_date_formatted = user.birth_date
+            
+            profile_text = (
+                f"👤 Ваш профиль\n\n"
+                f"Имя: {user.profile_name}\n"
+                f"Телефон: {user.phone_number}\n"
+                f"Дата рождения: {birth_date_formatted}\n"
+                f"💰 Баллов: {user.loyalty_points:.2f}\n"
+                f"ID: {user.telegram_id}"
+            )
+            query.edit_message_text(profile_text)
+        else:
+            query.edit_message_text("Профиль не заполнен. Используйте /start для регистрации")
+        return
+    
+    elif data == "balance":
         user = UserModel.get_user(user_id)
         if user:
             query.edit_message_text(f"💰 Ваш баланс: {user.loyalty_points:.2f} баллов")
@@ -229,6 +269,74 @@ def handle_text(update: Update, context: CallbackContext):
     """Обработчик текста"""
     text = update.message.text
     user_id = update.effective_user.id
+    
+    # Обработка регистрации - Шаг 1: Имя
+    if context.user_data.get('registration_step') == 'name':
+        # Проверка на английские буквы
+        if not text.replace(' ', '').isalpha() or not all(ord(c) < 128 for c in text):
+            update.message.reply_text(
+                "❌ Пожалуйста, используйте только английские буквы\n"
+                "Попробуйте ещё раз:"
+            )
+            return
+        
+        context.user_data['profile_name'] = text
+        context.user_data['registration_step'] = 'phone'
+        
+        # Создаём кнопку для отправки телефона
+        keyboard = [[KeyboardButton("📱 Отправить номер телефона", request_contact=True)]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        
+        update.message.reply_text(
+            f"✅ Отлично, {text}!\n\n"
+            "Шаг 2/3: Поделитесь номером телефона\n"
+            "Нажмите кнопку ниже 👇",
+            reply_markup=reply_markup
+        )
+        return
+    
+    # Обработка регистрации - Шаг 3: Дата рождения
+    elif context.user_data.get('registration_step') == 'birth_date':
+        # Проверка формата даты (DD.MM.YYYY или DD-MM-YYYY или DD/MM/YYYY)
+        import re
+        from datetime import datetime
+        
+        # Пробуем разные форматы
+        date_formats = ['%d.%m.%Y', '%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d']
+        birth_date = None
+        
+        for fmt in date_formats:
+            try:
+                date_obj = datetime.strptime(text, fmt)
+                birth_date = date_obj.strftime('%Y-%m-%d')
+                break
+            except:
+                continue
+        
+        if not birth_date:
+            update.message.reply_text(
+                "❌ Неверный формат даты\n"
+                "Используйте формат: ДД.ММ.ГГГГ (например: 25.12.1995)\n"
+                "Попробуйте ещё раз:"
+            )
+            return
+        
+        # Сохраняем профиль
+        profile_name = context.user_data.get('profile_name')
+        phone_number = context.user_data.get('phone_number')
+        
+        UserModel.update_profile(user_id, profile_name, phone_number, birth_date)
+        
+        # Очищаем данные регистрации
+        context.user_data.clear()
+        
+        update.message.reply_text(
+            "✅ Регистрация завершена!\n\n"
+            "Теперь вы можете пользоваться всеми функциями бота.\n"
+            "Используйте /menu для начала работы",
+            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("/menu")]], resize_keyboard=True)
+        )
+        return
     
     # Обработка суммы для оплаты (первый шаг)
     if context.user_data.get('waiting_for_amount'):
@@ -619,6 +727,30 @@ def handle_photo(update: Update, context: CallbackContext):
                 "Попробуйте отправить фото еще раз."
             )
 
+def handle_contact(update: Update, context: CallbackContext):
+    """Обработчик контакта (номер телефона)"""
+    user_id = update.effective_user.id
+    
+    if context.user_data.get('registration_step') == 'phone':
+        contact = update.message.contact
+        
+        # Проверяем, что пользователь отправил свой номер
+        if contact.user_id != user_id:
+            update.message.reply_text("❌ Пожалуйста, отправьте ВАШ номер телефона")
+            return
+        
+        phone_number = contact.phone_number
+        context.user_data['phone_number'] = phone_number
+        context.user_data['registration_step'] = 'birth_date'
+        
+        update.message.reply_text(
+            f"✅ Номер телефона сохранён: {phone_number}\n\n"
+            "Шаг 3/3: Введите дату рождения\n"
+            "Формат: ДД.ММ.ГГГГ (например: 25.12.1995)",
+            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("/menu")]], resize_keyboard=True)
+        )
+
+
 def main():
     """Запуск бота"""
     # Инициализация БД
@@ -634,10 +766,9 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("menu", menu))
     dp.add_handler(CommandHandler("balance", balance))
-    dp.add_handler(CommandHandler("myqr", my_qr))
     dp.add_handler(CallbackQueryHandler(button_callback))
+    dp.add_handler(MessageHandler(Filters.contact, handle_contact))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text))
-    dp.add_handler(MessageHandler(Filters.photo, handle_photo))
     
     # Запуск
     logger.info("Бот запущен")
