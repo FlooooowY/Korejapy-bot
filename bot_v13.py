@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import time
 
 from models_sync import UserModel, PaymentModel, BroadcastModel, BirthdayMessageModel
+from database_sync import User
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -88,7 +89,8 @@ def start(update: Update, context: CallbackContext):
         update.message.reply_text(welcome_text)
     else:
         # Для клиентов - обязательная регистрация
-        if not db_user.is_registered:
+        # Проверяем is_registered (может быть None, 0 или False)
+        if not db_user.is_registered or db_user.is_registered == 0:
             keyboard = [
                 [InlineKeyboardButton("📝 Зарегистрироваться", callback_data="start_registration")]
             ]
@@ -192,17 +194,31 @@ def button_callback(update: Update, context: CallbackContext):
             
             profile_text = (
                 f"👤 Ваш профиль\n\n"
-                f"Имя: {user.profile_name}\n"
-                f"Телефон: {user.phone_number}\n"
+                f"Имя: {user.profile_name or 'Не указано'}\n"
+                f"Телефон: {user.phone_number or 'Не указан'}\n"
                 f"Дата рождения: {birth_date_formatted}\n"
                 f"💰 Баллов: {user.loyalty_points:.2f}\n"
                 f"ID: {user.telegram_id}"
             )
-            # Добавляем кнопку "Назад"
-            keyboard = [[InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu")]]
+            # Добавляем кнопки
+            keyboard = [
+                [InlineKeyboardButton("✏️ Изменить имя", callback_data="edit_name")],
+                [InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu")]
+            ]
             query.edit_message_text(profile_text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             query.edit_message_text("Профиль не заполнен. Используйте /start для регистрации")
+        return
+    
+    # Изменить имя
+    elif data == "edit_name":
+        keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="my_profile")]]
+        query.edit_message_text(
+            "✏️ Изменение имени\n\n"
+            "Введите новое имя:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data['editing_name'] = True
         return
     
     # Кнопка "Назад в меню"
@@ -287,28 +303,56 @@ def button_callback(update: Update, context: CallbackContext):
     # Настройка рассылки в ДР
     elif data == "birthday_settings":
         if is_admin(user_id):
-            # Получаем текущие настройки
-            birthday_msg = BirthdayMessageModel.get_birthday_message()
-            current_text = birthday_msg.message_text if birthday_msg else "Не настроено"
-            has_photo = birthday_msg and birthday_msg.photo_file_id
-            
-            keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="back_to_menu")]]
-            query.edit_message_text(
-                "🎂 Настройка рассылки в День Рождения\n\n"
-                f"Текущий текст:\n{current_text}\n"
-                f"Фото: {'✅ Есть' if has_photo else '❌ Нет'}\n\n"
-                "Введите новый текст поздравления:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-            context.user_data['birthday_setup_step'] = 'text'
+            try:
+                # Получаем текущие настройки
+                birthday_msg = BirthdayMessageModel.get_birthday_message()
+                current_text = birthday_msg.message_text if birthday_msg else "Не настроено"
+                has_photo = birthday_msg and birthday_msg.photo_file_id
+                
+                keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="back_to_menu")]]
+                query.edit_message_text(
+                    "🎂 Настройка рассылки в День Рождения\n\n"
+                    f"Текущий текст:\n{current_text[:100]}...\n"
+                    f"Фото: {'✅ Есть' if has_photo else '❌ Нет'}\n\n"
+                    "Введите новый текст поздравления:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                context.user_data['birthday_setup_step'] = 'text'
+            except Exception as e:
+                logger.error(f"Ошибка настройки рассылки ДР: {e}")
+                query.edit_message_text(
+                    "❌ Ошибка настройки рассылки.\n"
+                    "Попробуйте позже или обратитесь к разработчику."
+                )
 
 def handle_text(update: Update, context: CallbackContext):
     """Обработчик текста"""
     text = update.message.text
     user_id = update.effective_user.id
     
+    # Изменение имени в профиле
+    if context.user_data.get('editing_name'):
+        if not text.strip():
+            update.message.reply_text("❌ Имя не может быть пустым\nПопробуйте ещё раз:")
+            return
+        
+        # Обновляем имя
+        from database_sync import SessionLocal
+        session = SessionLocal()
+        user = session.query(User).filter_by(telegram_id=user_id).first()
+        if user:
+            user.profile_name = text.strip()
+            session.commit()
+            update.message.reply_text(
+                f"✅ Имя успешно изменено на: {text.strip()}\n\n"
+                "Используйте /menu для возврата в меню"
+            )
+        session.close()
+        context.user_data.clear()
+        return
+    
     # Обработка регистрации - Шаг 1: Имя (ФИО или кастомное)
-    if context.user_data.get('registration_step') == 'name':
+    elif context.user_data.get('registration_step') == 'name':
         # Проверка что имя не пустое
         if not text.strip():
             update.message.reply_text(
