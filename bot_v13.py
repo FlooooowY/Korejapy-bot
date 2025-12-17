@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import time
 
 from models_sync import UserModel, PaymentModel, BroadcastModel, BirthdayMessageModel
-from database_sync import User
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -336,18 +335,25 @@ def handle_text(update: Update, context: CallbackContext):
             update.message.reply_text("❌ Имя не может быть пустым\nПопробуйте ещё раз:")
             return
         
-        # Обновляем имя
-        from database_sync import SessionLocal
-        session = SessionLocal()
-        user = session.query(User).filter_by(telegram_id=user_id).first()
-        if user:
-            user.profile_name = text.strip()
-            session.commit()
-            update.message.reply_text(
-                f"✅ Имя успешно изменено на: {text.strip()}\n\n"
-                "Используйте /menu для возврата в меню"
-            )
-        session.close()
+        # Обновляем имя через модель
+        try:
+            from database_sync import SessionLocal, User
+            session = SessionLocal()
+            db_user = session.query(User).filter_by(telegram_id=user_id).first()
+            if db_user:
+                db_user.profile_name = text.strip()
+                session.commit()
+                update.message.reply_text(
+                    f"✅ Имя успешно изменено на: {text.strip()}\n\n"
+                    "Используйте /menu для возврата в меню"
+                )
+            else:
+                update.message.reply_text("❌ Ошибка: пользователь не найден")
+            session.close()
+        except Exception as e:
+            logger.error(f"Ошибка изменения имени: {e}")
+            update.message.reply_text("❌ Ошибка при изменении имени. Попробуйте позже.")
+        
         context.user_data.clear()
         return
     
