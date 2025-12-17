@@ -35,12 +35,21 @@ def migrate_birthday_table(db_path='korejapy_bot.db'):
             # Проверяем колонки
             cursor.execute("PRAGMA table_info(birthday_messages)")
             columns = {row[1]: row[2] for row in cursor.fetchall()}
+            print(f"  📋 Существующие колонки: {list(columns.keys())}")
             
-            # Переименовываем photo_path в photo_file_id если нужно
+            # Для старого SQLite используем другой подход
             if 'photo_path' in columns and 'photo_file_id' not in columns:
-                print("  🔄 Переименовываем photo_path -> photo_file_id...")
-                cursor.execute("ALTER TABLE birthday_messages RENAME COLUMN photo_path TO photo_file_id")
-                print("  ✅ Колонка переименована")
+                print("  🔄 Миграция photo_path -> photo_file_id...")
+                
+                # Добавляем новую колонку
+                cursor.execute("ALTER TABLE birthday_messages ADD COLUMN photo_file_id TEXT")
+                
+                # Копируем данные из старой колонки
+                cursor.execute("UPDATE birthday_messages SET photo_file_id = photo_path WHERE photo_path IS NOT NULL")
+                
+                print("  ✅ Данные скопированы в photo_file_id")
+                print("  ℹ️ Старая колонка photo_path оставлена для совместимости")
+                
             elif 'photo_file_id' in columns:
                 print("  ✅ Колонка photo_file_id уже существует")
             else:
