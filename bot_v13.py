@@ -5,8 +5,8 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryH
 from dotenv import load_dotenv
 import time
 
-from models_sync import UserModel, PaymentModel, BroadcastModel
-from qr_generator import generate_qr_code, generate_spend_qr_code, parse_qr_code, decode_qr_from_image
+from models_sync import UserModel, PaymentModel, BroadcastModel, BirthdayMessageModel
+from telegram import KeyboardButton, ReplyKeyboardMarkup
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -24,6 +24,9 @@ ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_IDS', '').split(',') if 
 ADMIN_USERNAMES = ['flooooooooooowy', 'katrinzagora']
 SELLER_USERNAMES = ['fublat_666', 'shad0w_04', 'mikk4u']
 POINTS_PER_RUBLE = 0.01  # 1% от суммы покупки в баллы
+
+# ID последнего сообщения меню для редактирования
+user_menu_messages = {}
 
 # Вспомогательные функции
 def is_admin(user_id: int) -> bool:
@@ -63,33 +66,27 @@ def start(update: Update, context: CallbackContext):
     if user.username and user.username.lower() in [u.lower() for u in ADMIN_USERNAMES]:
         if db_user.role not in ['admin', 'creator']:
             UserModel.update_role(user.id, 'admin')
-            welcome_text = (
-                "👑 Добро пожаловать, Администратор!\n\n"
-                f"Здравствуйте, @{user.username}!\n"
-                "Вам автоматически назначена роль администратора.\n\n"
-                "Используйте /menu для начала работы."
-            )
-        else:
-            welcome_text = f"👑 С возвращением, @{user.username}!\nИспользуйте /menu"
+        welcome_text = f"👑 Добро пожаловать, @{user.username}!\nИспользуйте /menu"
     elif user.username and user.username.lower() in [u.lower() for u in SELLER_USERNAMES]:
         if db_user.role not in ['seller', 'admin', 'creator']:
             UserModel.update_role(user.id, 'seller')
-            welcome_text = (
-                "🛍️ Добро пожаловать, Продавец!\n\n"
-                f"Здравствуйте, @{user.username}!\n"
-                "Используйте /menu для начала работы."
-            )
-        else:
-            welcome_text = f"🛍️ С возвращением, @{user.username}!\nИспользуйте /menu"
+        welcome_text = f"🛍️ Добро пожаловать, @{user.username}!\nИспользуйте /menu"
     else:
-        welcome_text = (
-            "✨ Добро пожаловать в Korejapy!\n\n"
-            "Мы рады приветствовать вас в нашей программе лояльности!\n\n"
-            "🎁 При каждой покупке вы получаете 10% баллами\n"
-            "Используйте /menu"
-        )
+        welcome_text = "✨ Добро пожаловать в Korejapy!\n\nИспользуйте /menu"
     
-    update.message.reply_text(welcome_text)
+    # Проверяем регистрацию
+    if not db_user.is_registered and db_user.role == 'client':
+        keyboard = [
+            [InlineKeyboardButton("📝 Зарегистрироваться", callback_data="start_registration")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text(
+            "📝 Для использования бота необходимо пройти регистрацию.\n\n"
+            "Это займет всего минуту!",
+            reply_markup=reply_markup
+        )
+    else:
+        update.message.reply_text(welcome_text)
 
 def menu(update: Update, context: CallbackContext):
     """Главное меню"""

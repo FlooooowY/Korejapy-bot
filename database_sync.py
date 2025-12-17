@@ -22,6 +22,12 @@ class User(Base):
     loyalty_points = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
+    
+    # Поля профиля
+    profile_name = Column(String(255), nullable=True)  # Имя на английском
+    phone_number = Column(String(50), nullable=True, unique=True)  # Номер телефона
+    birth_date = Column(String(10), nullable=True)  # Дата рождения (YYYY-MM-DD)
+    is_registered = Column(Boolean, default=False)  # Завершена ли регистрация
 
 
 class Payment(Base):
@@ -45,6 +51,16 @@ class Broadcast(Base):
     sender_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     message_text = Column(Text, nullable=False)
     sent_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BirthdayMessage(Base):
+    __tablename__ = 'birthday_messages'
+    
+    id = Column(Integer, primary_key=True)
+    message_text = Column(Text, nullable=False)
+    photo_path = Column(String(500), nullable=True)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

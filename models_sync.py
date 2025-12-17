@@ -1,5 +1,5 @@
-from database_sync import get_session, User, Payment, Broadcast
-from typing import Optional
+from database_sync import get_session, User, Payment, Broadcast, BirthdayMessage
+from typing import Optional, List
 
 
 class UserModel:
@@ -91,6 +91,67 @@ class UserModel:
             return session.query(User).all()
         finally:
             session.close()
+    
+    @staticmethod
+    def update_profile(telegram_id: int, profile_name: str = None, 
+                      phone_number: str = None, birth_date: str = None) -> bool:
+        """Обновить профиль пользователя"""
+        session = get_session()
+        try:
+            user = session.query(User).filter_by(telegram_id=telegram_id).first()
+            if user:
+                if profile_name:
+                    user.profile_name = profile_name
+                if phone_number:
+                    user.phone_number = phone_number
+                if birth_date:
+                    user.birth_date = birth_date
+                if profile_name and phone_number and birth_date:
+                    user.is_registered = True
+                session.commit()
+                return True
+            return False
+        finally:
+            session.close()
+    
+    @staticmethod
+    def find_user_by_phone(phone_number: str) -> Optional[User]:
+        """Найти пользователя по номеру телефона"""
+        session = get_session()
+        try:
+            return session.query(User).filter_by(phone_number=phone_number).first()
+        finally:
+            session.close()
+    
+    @staticmethod
+    def find_user_by_username(username: str) -> Optional[User]:
+        """Найти пользователя по username"""
+        session = get_session()
+        try:
+            # Убираем @ если есть
+            username = username.lstrip('@').lower()
+            users = session.query(User).all()
+            for user in users:
+                if user.username and user.username.lower() == username:
+                    return user
+            return None
+        finally:
+            session.close()
+    
+    @staticmethod
+    def get_users_with_birthday_today() -> List[User]:
+        """Получить пользователей с днем рождения сегодня"""
+        from datetime import date
+        today = date.today().strftime('%m-%d')
+        session = get_session()
+        try:
+            users = session.query(User).filter(
+                User.birth_date.like(f'%-{today}'),
+                User.is_registered == True
+            ).all()
+            return users
+        finally:
+            session.close()
 
 
 class PaymentModel:
@@ -144,6 +205,38 @@ class BroadcastModel:
             if broadcast:
                 broadcast.sent_count = count
                 session.commit()
+        finally:
+            session.close()
+
+
+class BirthdayMessageModel:
+    @staticmethod
+    def set_birthday_message(message_text: str, photo_path: str = None) -> BirthdayMessage:
+        """Установить сообщение для рассылки в день рождения"""
+        session = get_session()
+        try:
+            # Деактивируем все предыдущие сообщения
+            session.query(BirthdayMessage).update({'is_active': False})
+            
+            # Создаем новое активное сообщение
+            birthday_msg = BirthdayMessage(
+                message_text=message_text,
+                photo_path=photo_path,
+                is_active=True
+            )
+            session.add(birthday_msg)
+            session.commit()
+            session.refresh(birthday_msg)
+            return birthday_msg
+        finally:
+            session.close()
+    
+    @staticmethod
+    def get_active_message() -> Optional[BirthdayMessage]:
+        """Получить активное сообщение для дня рождения"""
+        session = get_session()
+        try:
+            return session.query(BirthdayMessage).filter_by(is_active=True).first()
         finally:
             session.close()
 
